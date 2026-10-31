@@ -12,7 +12,8 @@ st.set_page_config(
 )
 
 # --- CARGA Y ESTRUCTURACIÓN DE LA DOCUMENTACIÓN (MOCK UP) ---
-MOCK_UP_PATH = '/content/MOCK UP_Final v21.04.2026 up to 3 languages.xlsm'
+# Cambiado a ruta relativa para que funcione tanto localmente como en Streamlit Cloud desde GitHub
+MOCK_UP_PATH = 'MOCK UP_Final v21.04.2026 up to 3 languages.xlsm'
 
 @st.cache_data(show_spinner="Cargando base de conocimiento del negocio...")
 def load_knowledge_base(file_path):
@@ -39,27 +40,27 @@ def load_knowledge_base(file_path):
                 nec_text += f"- {details}\n"
             knowledge['necessary'] = nec_text
 
-            # 3. LOV_Values
+            # 3. LOV_Values (Muestra representativa agrupada para no saturar contexto)
             df_lov = pd.read_excel(file_path, sheet_name="LOV_Values")
             df_lov.columns = df_lov.columns.str.strip()
             lov_text = ""
-            sample_lovs = df_lov.dropna(subset=['Attribute LOV ID', 'Value Name (EN)']).head(100)
+            sample_lovs = df_lov.dropna(subset=['Attribute LOV ID', 'Value Name (EN)']).head(150)
             for lov_id, group in sample_lovs.groupby('Attribute LOV ID'):
                 vals = ", ".join(group['Value Name (EN)'].astype(str).unique())
                 lov_text += f"- {lov_id}: Valores permitidos -> [{vals}]\n"
             knowledge['lovs'] = lov_text
 
-            # 4. Bible
+            # 4. Bible (Reglas generales y equivalencias maestras)
             df_bible = pd.read_excel(file_path, sheet_name="Bible")
             df_bible.columns = df_bible.columns.str.strip()
             bible_text = ""
-            for _, row in df_bible.dropna(subset=['SAP Code']).head(15).iterrows():
+            for _, row in df_bible.dropna(subset=['SAP Code']).head(25).iterrows():
                 bible_text += f"- SAP Code: {row['SAP Code']} | Producto: {row.get('Group Description 40', 'N/A')} | Proveedor: {row.get('Supplier Name', 'N/A')}\n"
             knowledge['bible'] = bible_text
 
             return knowledge
         else:
-            st.warning("⚠️ No se encontró el archivo de documentación Excel en la ruta especificada.")
+            st.warning(f"⚠️ No se encontró el archivo de documentación Excel en la ruta especificada: {os.path.abspath(file_path)}")
             return None
     except Exception as e:
         st.error(f"Error procesando la base de conocimiento: {e}")
@@ -73,7 +74,7 @@ def build_system_instruction(kb):
     base_prompt = (
         "Eres un asistente experto de validación de datos y catálogos de productos para Lyreco.\n"
         "Tu rol es ayudar a los proveedores y analistas a resolver dudas de negocio, validar formatos y explicar errores.\n\n"
-        "IMPORTANTE: Responde a las consultas de los usuarios basándose prioritariamente en la documentación oficial "
+        "IMPORTANTE: Responde a las consultas de los usuarios basándote prioritariamente en la documentación oficial "
         "del negocio provista a continuación. Si la información no está aquí, utiliza tus capacidades cognitivas indicando "
         "claramente que es una recomendación basada en estándares generales.\n\n"
     )
@@ -104,7 +105,7 @@ except Exception as e:
     client = None
 
 # --- INTERFAZ DE USUARIO ---
-st.title("✅ Asistente de Masterdata & Validación Inteligente")
+st.title("✅ Asistente de Masterdata & Validación Inteligente - Lyreco")
 st.write("Realiza consultas inteligentes basadas directamente en el Mock Up de negocio, valida plantillas Excel o interactúa con el modelo.")
 
 tab1, tab2 = st.tabs(["⁉ Chat de Soporte de Negocio", "🔍 Validador de Plantilla Excel"])
