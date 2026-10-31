@@ -1,127 +1,196 @@
-
 import streamlit as st
 import pandas as pd
+import os
 from google import genai
 from google.genai import types
 
-# Configuración de la página
+# --- CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(
-    page_title="Asistente de carga de productos",
-    page_icon="📦",
-    layout="centered"
+    page_title="Asistente de Validación - Lyreco",
+    page_icon="✅",
+    layout="wide"
 )
 
-# Título y Descripción
-st.title("Asistente de carga de productos 📦")
-st.markdown(
-    "Consulta dudas sobre atributos, formatos y errores de validación en ficheros de carga de productos. "
-    "Sube tu archivo Excel para comenzar el proceso de validación."
-)
+# --- CARGA Y ESTRUCTURACIÓN DE LA DOCUMENTACIÓN (MOCK UP) ---
+MOCK_UP_PATH = '/content/MOCK UP_Final v21.04.2026 up to 3 languages.xlsm'
 
-# Inicialización exclusiva con st.secrets["GEMINI_API_KEY"]
-api_key = st.secrets.get("GEMINI_API_KEY", None)
-if api_key:
+@st.cache_data(show_spinner="Cargando base de conocimiento del negocio...")
+def load_knowledge_base(file_path):
+    knowledge = {}
+    try: 
+        if os.path.exists(file_path):
+            # 1. AT INSTRUCTION
+            df_inst = pd.read_excel(file_path, sheet_name="AT INSTRUCTION")
+            df_inst.columns = df_inst.columns.str.strip()
+            inst_text = ""
+            for _, row in df_inst.dropna(subset=['Column']).head(50).iterrows():
+                tab_info = f" (Pestaña: {row['Tab']})" if pd.notna(row['Tab']) else ""
+                inst_text += f"- Atributo/Columna: {row['Column']}{tab_info}. Instrucción: {row['Comments']}
+"
+            knowledge['instructions'] = inst_text
+
+            # 2. AT NECESSARY FOR ALL PRODUCTS
+            df_nec = pd.read_excel(file_path, sheet_name="AT NECESSARY FOR ALL PRODUCTS")
+            df_nec.columns = df_nec.columns.str.strip()
+            nec_text = ""
+            cols_to_use = ['Attribute ID', 'Attribute Name (EN)', 'TYPE', 'Definition & Completion advice (EN)']
+            cols_present = [c for c in cols_to_use if c in df_nec.columns]
+            for _, row in df_nec.dropna(subset=['Attribute ID']).head(60).iterrows():
+                details = ", ".join([f"{c}: {row[c]}" for c in cols_present if pd.notna(row[c])])
+                nec_text += f"- {details}
+"
+            knowledge['necessary'] = nec_text
+
+            # 3. LOV_Values (Muestra representativa agrupada para no saturar contexto)
+            df_lov = pd.read_excel(file_path, sheet_name="LOV_Values")
+            df_lov.columns = df_lov.columns.str.strip()
+            lov_text = ""
+            sample_lovs = df_lov.dropna(subset=['Attribute LOV ID', 'Value Name (EN)']).head(150)
+            for lov_id, group in sample_lovs.groupby('Attribute LOV ID'):
+                vals = ", ".join(group['Value Name (EN)'].astype(str).unique())
+                lov_text += f"- {lov_id}: Valores permitidos -> [{vals}]
+"
+            knowledge['lovs'] = lov_text
+
+            # 4. Bible (Reglas generales y equivalencias maestras)
+            df_bible = pd.read_excel(file_path, sheet_name="Bible")
+            df_bible.columns = df_bible.columns.str.strip()
+            bible_text = ""
+            for _, row in df_bible.dropna(subset=['SAP Code']).head(25).iterrows():
+                bible_text += f"- SAP Code: {row['SAP Code']} | Producto: {row.get('Group Description 40', 'N/A')} | Proveedor: {row.get('Supplier Name', 'N/A')}
+"
+            knowledge['bible'] = bible_text
+
+            return knowledge
+        else:
+            st.warning("⚠️ No se encontró el archivo de documentación Excel en la ruta especificada.")
+            return None
+    except Exception as e:
+        st.error(f"Error procesando la base de conocimiento: {e}")
+        return None
+
+# Cargar base de conocimiento
+kb = load_knowledge_base(MOCK_UP_PATH)
+
+# --- GENERACIÓN DEL SYSTEM PROMPT ENRIQUECIDO ---
+def build_system_instruction(kb):
+    base_prompt = (
+        "Eres un asistente experto de validación de datos y catálogos de productos para Lyreco.
+"
+        "Tu rol es ayudar a los proveedores y analistas a resolver dudas de negocio, validar formatos y explicar errores.
+
+"
+        "IMPORTANTE: Responde a las consultas de los usuarios basándote prioritariamente en la documentación oficial "
+        "del negocio provista a continuación. Si la información no está aquí, utiliza tus capacidades cognitivas indicando "
+        "claramente que es una recomendación basada en estándares generales.
+
+"
+    )
+
+    if kb:
+        base_prompt += "=== REGLAS MAESTRAS DE PRODUCTOS (HOJA BIBLE) ===
+"
+        base_prompt += kb.get('bible', 'No disponible') + "
+
+"
+
+        base_prompt += "=== REGLAS DE OBLIGATORIEDAD (HOJA AT NECESSARY FOR ALL PRODUCTS) ===
+"
+        base_prompt += kb.get('necessary', 'No disponible') + "
+
+"
+
+        base_prompt += "=== VALORES PERMITIDOS LOV (HOJA LOV_Values) ===
+"
+        base_prompt += kb.get('lovs', 'No disponible') + "
+
+"
+
+        base_prompt += "=== INSTRUCCIONES DE ATRIBUTOS (HOJA AT INSTRUCTION) ===
+"
+        base_prompt += kb.get('instructions', 'No disponible') + "
+
+"
+
+    return base_prompt
+
+system_instruction = build_system_instruction(kb)
+
+# --- CLIENTE DE GEMINI (st.secrets) ---
+try:
+    api_key = st.secrets["GEMINI_API_KEY"]
     client = genai.Client(api_key=api_key)
-else:
-    st.error("⚠️ Error: No se pudo cargar 'GEMINI_API_KEY' desde st.secrets. Verifica tu configuración en Streamlit Cloud.")
+except Exception as e:
+    st.error("⚠️ No se pudo iniciar el cliente de Gemini. Por favor configure su 'GEMINI_API_KEY' en st.secrets.")
     client = None
 
-# ---------------------------------------------------------------------
-# FUNCIONALIDAD: Revisar un fichero de carga (Validación Inicial)
-# ---------------------------------------------------------------------
-st.header("📤 1. Cargar y Revisar Fichero de Productos")
-uploaded_file = st.file_uploader(
-    "Selecciona tu archivo de carga (.xlsx o .xlsm)",
-    type=["xlsx", "xlsm"]
-)
+# --- INTERFAZ DE USUARIO ---
+st.title("✅ Asistente de Masterdata & Validación Inteligente - Lyreco")
+st.write("Realiza consultas inteligentes basadas directamente en el Mock Up de negocio, valida plantillas Excel o interactúa con el modelo.")
 
-df_context = ""
-if uploaded_file is not None:
-    try:
-        df = pd.read_excel(uploaded_file)
-        st.success(f"✅ Archivo '{uploaded_file.name}' cargado correctamente.")
+tab1, tab2 = st.tabs(["⁉ Chat de Soporte de Negocio", "🔍 Validador de Plantilla Excel"])
 
-        # Reporte de revisión de fichero
-        st.subheader("📊 Reporte de Revisión")
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Total Filas", len(df))
-        col2.metric("Total Columnas", len(df.columns))
+with tab1:
+    st.subheader("¡Conversa con Gemini sobre la regulación de atributos!")
+    st.info("El modelo responderá utilizando información real sobre atributos obligatorios, instrucciones del proveedor y valores LOV cargados del Excel.")
 
-        # Detección básica de inconsistencias
-        null_counts = df.isnull().sum().sum()
-        col3.metric("Celdas Vacías", null_counts)
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
 
-        # Guardar lista de columnas como contexto para el asistente
-        columns_list = list(df.columns)
-        df_context = f" El archivo cargado por el usuario contiene las siguientes columnas: {columns_list}."
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
 
-        with st.expander("🔍 Ver vista previa de las columnas cargadas"):
-            st.dataframe(df.head(5))
+    if prompt := st.chat_input("¿Cómo rellenar el campo FSC? ¿Qué valores están permitidos?"):
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
 
-    except Exception as e:
-        st.error(f"❌ Error al leer y revisar el archivo Excel: {e}")
-
-# ---------------------------------------------------------------------
-# FUNCIONALIDAD: Resolver dudas sobre atributos y Explicar errores de validación
-# ---------------------------------------------------------------------
-st.header("💬 2. Asistente de Consultas")
-st.write("Pregunta al asistente sobre el significado de atributos específicos, formatos válidos o pega un error de validación para interpretarlo.")
-
-if "messages" not in st.session_state:
-    st.session_state["messages"] = []
-
-for msg in st.session_state["messages"]:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
-
-if user_query := st.chat_input("Ej: ¿Qué formato debe tener el atributo EAN o cómo soluciono un error de longitud máxima?"):
-
-    st.session_state["messages"].append({"role": "user", "content": user_query})
-    with st.chat_message("user"):
-        st.markdown(user_query)
-
-    if client is not None:
         with st.chat_message("assistant"):
-            with st.spinner("Analizando consulta..."):
+            if client:
                 try:
-                    system_instruction = (
-                        "Actúas como un asistente experto para proveedores de comercio electrónico. "
-                        "Tu único objetivo es resolver dudas sobre atributos de productos, formatos de carga y explicar errores de validación. "
-                        "Reglas de comportamiento:\n"
-                        "- Responde estrictamente en español.\n"
-                        "- Utiliza un lenguaje muy claro, sencillo y profesional.\n"
-                        "- Explica el significado de los atributos consultados y cómo resolver errores de validación paso a paso.\n"
-                        "- Proporciona consejos para completar correctamente las plantillas de carga.\n"
-                        "- NO inventes información. Si no tienes suficiente información, indícalo claramente.\n"
-                        "- NO completes atributos por el usuario ni intentes modificar el archivo Excel.\n"
-                        "- No asumas formatos específicos de plataformas ajenas a menos que el usuario lo mencione.\n"
-                    )
-
-                    if df_context:
-                        system_instruction += df_context
-
                     contents = []
-                    for m in st.session_state["messages"]:
-                        role_name = "user" if m["role"] == "user" else "model"
-                        contents.append(types.Content(
-                            role=role_name,
-                            parts=[types.Part.from_text(text=m["content"])]
-                        ))
+                    for msg in st.session_state.messages:
+                        contents.append(
+                            types.Content(
+                                role="user" if msg["role"] == "user" else "model",
+                                parts=[types.Part.from_text(text=msg["content"])]
+                            )
+                        )
 
                     response = client.models.generate_content(
-                        model='gemini-2.5-flash',
+                        model='gemini-2.5-flash-lite',
                         contents=contents,
                         config=types.GenerateContentConfig(
                             system_instruction=system_instruction,
                             temperature=0.2
                         )
                     )
-
                     assistant_response = response.text
                     st.markdown(assistant_response)
-                    st.session_state["messages"].append({"role": "assistant", "content": assistant_response})
+                    st.session_state.messages.append({"role": "assistant", "content": assistant_response})
+                except Exception as ex:
+                    st.error(f"Error al generar respuesta de Gemini: {ex}")
+            else:
+                st.warning("Servicio de IA no configurado.")
 
-                except Exception as e:
-                    st.error(f"❌ Error al generar la respuesta: {e}")
-    else:
-        st.warning("⚠️ El asistente está inactivo porque no se configuró 'GEMINI_API_KEY' en st.secrets.")
+with tab2:
+    st.subheader("Validación de estructura de datos de usuario")
+    uploaded_file = st.file_uploader("Sube tu archivo de datos para pre-validar contra las reglas del negocio", type=["xlsx", "xlsm", "csv"])
+    if uploaded_file:
+        try:
+            user_df = pd.read_excel(uploaded_file) if not uploaded_file.name.endswith('.csv') else pd.read_csv(uploaded_file)
+            st.success("¡Archivo cargado correctamente!")
+            st.write("**Vista previa de tus datos:**")
+            st.dataframe(user_df.head(10))
+
+            if kb and 'necessary' in kb:
+                st.markdown("### 🔍 Diagnóstico de campos obligatorios detectados")
+                expected_mandatory = ['FSC', 'Brand', 'Supplier Name', 'SAP code']
+                found_missing = [col for col in expected_mandatory if col not in user_df.columns]
+                if found_missing:
+                    st.warning(f"⚠️ Faltan los siguientes campos críticos en tu plantilla: {', '.join(found_missing)}")
+                else:
+                    st.success("✅ ¡Tu archivo contiene todas las columnas de control requeridas para la validación!")
+        except Exception as e:
+            st.error(f"No se pudo procesar tu archivo de validación: {e}")
