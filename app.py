@@ -96,12 +96,17 @@ def build_system_instruction(kb):
 
 system_instruction = build_system_instruction(kb)
 
-# --- CLIENTE DE GEMINI (st.secrets) ---
+# --- CLIENTE DE GEMINI (Inyección de variable de entorno) ---
 try:
-    api_key = st.secrets["GEMINI_API_KEY"]
-    client = genai.Client(api_key=api_key)
+    if "GEMINI_API_KEY" in st.secrets:
+        # Asignar la clave directamente al OS para garantizar soporte nativo con google-genai
+        os.environ["GEMINI_API_KEY"] = st.secrets["GEMINI_API_KEY"]
+        client = genai.Client()
+    else:
+        st.error("⚠️ No se encontró la clave 'GEMINI_API_KEY' en st.secrets.")
+        client = None
 except Exception as e:
-    st.error("⚠️ No se pudo iniciar el cliente de Gemini. Por favor configure su 'GEMINI_API_KEY' en st.secrets.")
+    st.error(f"⚠️ Error al iniciar el cliente de Gemini: {e}")
     client = None
 
 # --- INTERFAZ DE USUARIO ---
