@@ -17,7 +17,7 @@ MOCK_UP_PATH = '/content/MOCK UP_Final v21.04.2026 up to 3 languages.xlsm'
 @st.cache_data(show_spinner="Cargando base de conocimiento del negocio...")
 def load_knowledge_base(file_path):
     knowledge = {}
-    try: 
+    try:
         if os.path.exists(file_path):
             # 1. AT INSTRUCTION
             df_inst = pd.read_excel(file_path, sheet_name="AT INSTRUCTION")
@@ -41,22 +41,22 @@ def load_knowledge_base(file_path):
 "
             knowledge['necessary'] = nec_text
 
-            # 3. LOV_Values (Muestra representativa agrupada para no saturar contexto)
+            # 3. LOV_Values
             df_lov = pd.read_excel(file_path, sheet_name="LOV_Values")
             df_lov.columns = df_lov.columns.str.strip()
             lov_text = ""
-            sample_lovs = df_lov.dropna(subset=['Attribute LOV ID', 'Value Name (EN)']).head(150)
+            sample_lovs = df_lov.dropna(subset=['Attribute LOV ID', 'Value Name (EN)']).head(100)
             for lov_id, group in sample_lovs.groupby('Attribute LOV ID'):
                 vals = ", ".join(group['Value Name (EN)'].astype(str).unique())
                 lov_text += f"- {lov_id}: Valores permitidos -> [{vals}]
 "
             knowledge['lovs'] = lov_text
 
-            # 4. Bible (Reglas generales y equivalencias maestras)
+            # 4. Bible
             df_bible = pd.read_excel(file_path, sheet_name="Bible")
             df_bible.columns = df_bible.columns.str.strip()
             bible_text = ""
-            for _, row in df_bible.dropna(subset=['SAP Code']).head(25).iterrows():
+            for _, row in df_bible.dropna(subset=['SAP Code']).head(15).iterrows():
                 bible_text += f"- SAP Code: {row['SAP Code']} | Producto: {row.get('Group Description 40', 'N/A')} | Proveedor: {row.get('Supplier Name', 'N/A')}
 "
             knowledge['bible'] = bible_text
@@ -80,7 +80,7 @@ def build_system_instruction(kb):
         "Tu rol es ayudar a los proveedores y analistas a resolver dudas de negocio, validar formatos y explicar errores.
 
 "
-        "IMPORTANTE: Responde a las consultas de los usuarios basándote prioritariamente en la documentación oficial "
+        "IMPORTANTE: Responde a las consultas de los usuarios basándose prioritariamente en la documentación oficial "
         "del negocio provista a continuación. Si la información no está aquí, utiliza tus capacidades cognitivas indicando "
         "claramente que es una recomendación basada en estándares generales.
 
@@ -125,7 +125,7 @@ except Exception as e:
     client = None
 
 # --- INTERFAZ DE USUARIO ---
-st.title("✅ Asistente de Masterdata & Validación Inteligente - Lyreco")
+st.title("✅ Asistente de Masterdata & Validación Inteligente")
 st.write("Realiza consultas inteligentes basadas directamente en el Mock Up de negocio, valida plantillas Excel o interactúa con el modelo.")
 
 tab1, tab2 = st.tabs(["⁉ Chat de Soporte de Negocio", "🔍 Validador de Plantilla Excel"])
