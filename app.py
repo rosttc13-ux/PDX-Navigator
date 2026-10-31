@@ -6,7 +6,7 @@ from google.genai import types
 
 # --- CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(
-    page_title="Asistente de Validación - Lyreco",
+    page_title="PDX Navigator",
     page_icon="✅",
     layout="wide"
 )
@@ -105,7 +105,7 @@ except Exception as e:
     client = None
 
 # --- INTERFAZ DE USUARIO ---
-st.title("✅ Asistente de Masterdata & Validación Inteligente - Lyreco")
+st.title("✅ PDX Navigator")
 st.write("Realiza consultas inteligentes basadas directamente en el Mock Up de negocio, valida plantillas Excel o interactúa con el modelo.")
 
 tab1, tab2 = st.tabs(["⁉ Chat de Soporte de Negocio", "🔍 Validador de Plantilla Excel"])
