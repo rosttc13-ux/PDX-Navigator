@@ -25,8 +25,7 @@ def load_knowledge_base(file_path):
             inst_text = ""
             for _, row in df_inst.dropna(subset=['Column']).head(50).iterrows():
                 tab_info = f" (Pestaña: {row['Tab']})" if pd.notna(row['Tab']) else ""
-                inst_text += f"- Atributo/Columna: {row['Column']}{tab_info}. Instrucción: {row['Comments']}
-"
+                inst_text += f"- Atributo/Columna: {row['Column']}{tab_info}. Instrucción: {row['Comments']}\n"
             knowledge['instructions'] = inst_text
 
             # 2. AT NECESSARY FOR ALL PRODUCTS
@@ -37,8 +36,7 @@ def load_knowledge_base(file_path):
             cols_present = [c for c in cols_to_use if c in df_nec.columns]
             for _, row in df_nec.dropna(subset=['Attribute ID']).head(60).iterrows():
                 details = ", ".join([f"{c}: {row[c]}" for c in cols_present if pd.notna(row[c])])
-                nec_text += f"- {details}
-"
+                nec_text += f"- {details}\n"
             knowledge['necessary'] = nec_text
 
             # 3. LOV_Values
@@ -48,8 +46,7 @@ def load_knowledge_base(file_path):
             sample_lovs = df_lov.dropna(subset=['Attribute LOV ID', 'Value Name (EN)']).head(100)
             for lov_id, group in sample_lovs.groupby('Attribute LOV ID'):
                 vals = ", ".join(group['Value Name (EN)'].astype(str).unique())
-                lov_text += f"- {lov_id}: Valores permitidos -> [{vals}]
-"
+                lov_text += f"- {lov_id}: Valores permitidos -> [{vals}]\n"
             knowledge['lovs'] = lov_text
 
             # 4. Bible
@@ -57,8 +54,7 @@ def load_knowledge_base(file_path):
             df_bible.columns = df_bible.columns.str.strip()
             bible_text = ""
             for _, row in df_bible.dropna(subset=['SAP Code']).head(15).iterrows():
-                bible_text += f"- SAP Code: {row['SAP Code']} | Producto: {row.get('Group Description 40', 'N/A')} | Proveedor: {row.get('Supplier Name', 'N/A')}
-"
+                bible_text += f"- SAP Code: {row['SAP Code']} | Producto: {row.get('Group Description 40', 'N/A')} | Proveedor: {row.get('Supplier Name', 'N/A')}\n"
             knowledge['bible'] = bible_text
 
             return knowledge
@@ -75,42 +71,25 @@ kb = load_knowledge_base(MOCK_UP_PATH)
 # --- GENERACIÓN DEL SYSTEM PROMPT ENRIQUECIDO ---
 def build_system_instruction(kb):
     base_prompt = (
-        "Eres un asistente experto de validación de datos y catálogos de productos para Lyreco.
-"
-        "Tu rol es ayudar a los proveedores y analistas a resolver dudas de negocio, validar formatos y explicar errores.
-
-"
+        "Eres un asistente experto de validación de datos y catálogos de productos para Lyreco.\n"
+        "Tu rol es ayudar a los proveedores y analistas a resolver dudas de negocio, validar formatos y explicar errores.\n\n"
         "IMPORTANTE: Responde a las consultas de los usuarios basándose prioritariamente en la documentación oficial "
         "del negocio provista a continuación. Si la información no está aquí, utiliza tus capacidades cognitivas indicando "
-        "claramente que es una recomendación basada en estándares generales.
-
-"
+        "claramente que es una recomendación basada en estándares generales.\n\n"
     )
 
     if kb:
-        base_prompt += "=== REGLAS MAESTRAS DE PRODUCTOS (HOJA BIBLE) ===
-"
-        base_prompt += kb.get('bible', 'No disponible') + "
+        base_prompt += "=== REGLAS MAESTRAS DE PRODUCTOS (HOJA BIBLE) ===\n"
+        base_prompt += kb.get('bible', 'No disponible') + "\n\n"
 
-"
+        base_prompt += "=== REGLAS DE OBLIGATORIEDAD (HOJA AT NECESSARY FOR ALL PRODUCTS) ===\n"
+        base_prompt += kb.get('necessary', 'No disponible') + "\n\n"
 
-        base_prompt += "=== REGLAS DE OBLIGATORIEDAD (HOJA AT NECESSARY FOR ALL PRODUCTS) ===
-"
-        base_prompt += kb.get('necessary', 'No disponible') + "
+        base_prompt += "=== VALORES PERMITIDOS LOV (HOJA LOV_Values) ===\n"
+        base_prompt += kb.get('lovs', 'No disponible') + "\n\n"
 
-"
-
-        base_prompt += "=== VALORES PERMITIDOS LOV (HOJA LOV_Values) ===
-"
-        base_prompt += kb.get('lovs', 'No disponible') + "
-
-"
-
-        base_prompt += "=== INSTRUCCIONES DE ATRIBUTOS (HOJA AT INSTRUCTION) ===
-"
-        base_prompt += kb.get('instructions', 'No disponible') + "
-
-"
+        base_prompt += "=== INSTRUCCIONES DE ATRIBUTOS (HOJA AT INSTRUCTION) ===\n"
+        base_prompt += kb.get('instructions', 'No disponible') + "\n\n"
 
     return base_prompt
 
